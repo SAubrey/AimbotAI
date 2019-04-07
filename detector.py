@@ -28,7 +28,11 @@ class Detector:
         self.net = cv2.dnn.readNet(self.yolo_weights_path, self.yolo_config_path)
         self.output_layers = self.get_output_layers(self.net)
 
-        self.scale_down = .3
+        # TF
+        #self.net = cv2.dnn.readNetFromTensorflow('frozen_inference_graph.pb', 'csgo_labelmap.pbtxt')
+        #self.classes_path = 'csgo_labelmap.pbtxt'
+
+        self.scale_down = .28
         self.scale_up = 1/self.scale_down
         self.nms_threshold = 0.4  # How eager are you to combine overlapping bounding boxes?
         self.conf_threshold = 0.5
@@ -47,6 +51,7 @@ class Detector:
         # Get classes from file
         with open(self.yolo_classes_path, 'r') as f:
             self.classes = [line.strip() for line in f.readlines()]
+
         self.colors = np.random.uniform(0, 255, size=(len(self.classes), 3))
 
         #-----TOGGLE BY COMMENTING-----
@@ -67,29 +72,40 @@ class Detector:
 
             if self.tracker is None:
                 outs = self.process(image)
-                rd = self.find_target(image, outs)
-                if rd:
-                    target_pos = rd['center']  # Scaled up
-                    rect = self.translate_rect(rd['rect'], target_pos)  # Scaled down
-                    # Translate the tracking rect to where the crosshairs will be.
-                    # This increases accuracy and prevents overshooting
-                    self.im.move_mouse(target_pos)
+                rd = self.find_target(image, outs)  # Returns scaled down values!
+                if rd is not None:  # If target found, move and track
+                    target_pos = rd['center']
+                    self.im.move_mouse(self.scale_point_up(target_pos[0], target_pos[1]))
 
-                    rect = dlib.rectangle(rect[0], rect[1], rect[2], rect[3])
-                    self.tracker.start_track(image, rect)
-                    # time.sleep(.5)
+                    rect = self.translate_rect(rd['rect'], target_pos)
+                    self.tracker.start_track(dlib.as_grayscale(image), rect)
             elif tracked_time > self.max_track_time:
                 self.tracker = None
                 tracked_time = 0
             else:
                 # Update tracker and re-center mouse
-                self.tracker.update(image)
-                target_pos = self.tracker.get_position()
-                center = dlib.center(target_pos)
-                self.im.move_mouse(self.scale_point_up(center.x, center.y))
+                #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                confidence = self.tracker.update(image)
+                print("TRACKING CONFIDENCE: ", confidence)
+                if confidence < 4:
+                    self.tracker = None
+                    tracked_time = 0
+                else:
+                    target_pos = self.tracker.get_position()
+
+                    # DRAW TEST
+                    bl = dlib.drectangle.bl_corner(target_pos)
+                    tr = dlib.drectangle.tr_corner(target_pos)
+                    cv2.rectangle(image, (int(bl.x), int(bl.y)), (int(tr.x), int(tr.y)), (255, 255, 255), 2)
+                    cv2.imshow("detection", image)
+                    cv2.waitKey(10)
+
+                    center = dlib.center(target_pos)
+                    self.im.move_mouse(self.scale_point_up(center.x, center.y))
             tracked_time += time_diff
 
-            # Print FPS log
+            # Print FPS
             time_diff = time.time() - last_time
             total_time += time_diff
             frames += 1
@@ -97,18 +113,20 @@ class Detector:
                 time_diff, 1/time_diff, 1/(total_time/frames)))
             last_time = time.time()
 
+    # Move the tracking rect to where it will be after the mouse has moved. Calculate the distance
+    # from the scaled down target to the center of the scaled down image.
     def translate_rect(self, rect, target_pos):
-        #TODO: Adjust for scale
-        dx, dy = self.im.distance_from_crosshairs(target_pos[0], target_pos[1])
-        # DOn't want distance from each point... want distance from center point
-        #xw, yh = self.im.distance_from_crosshairs(rect[2], rect[3])
-        newr = (rect[0] + dx, rect[1] + dy, rect[2], rect[3])
+        scaled_down_center = self.scale_point_down(self.im.screen_centerx, self.im.screen_centery)
+        dx = int(target_pos[0] - scaled_down_center[0])  # .shape is y | x
+        dy = int(target_pos[1] - scaled_down_center[1])
+        newr = dlib.translate_rect(rect, dlib.point(-dx, -dy))
         return newr
 
     def preprocess(self, screen_size):
+        #TODO: Crop image to increase speed
         image = np.array(ImageGrab.grab(bbox=(0, 0, screen_size[0], screen_size[1])))
         image = imutils.resize(image, width=min(int(image.shape[1] * self.scale_down), image.shape[1]))
-        # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        #image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         return image
 
     def process(self, image):
@@ -136,19 +154,19 @@ class Detector:
                     center_y = int(detection[1] * height)
                     w = int(detection[2] * width)
                     h = int(detection[3] * height)
-                    x = center_x - w / 2
-                    y = center_y - h / 2
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
 
                     # DISPLAY IMAGE - testing
-                    cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 255, 255), 2)
+                    cv2.rectangle(image, (x, y), (int(x + w), int(y + h)), (255, 255, 255), 2)
                     cv2.imshow("detection", image)
-                    cv2.waitKey(50)
+                    cv2.waitKey(10)
 
                     # This will track the image in its scaled down size
                     # Create a new tracker object
                     self.tracker = dlib.correlation_tracker()
-                    rect = (int(x), int(y), int(x + w), int(y + h))
-                    return {'center': self.scale_point_up(center_x, center_y), 'rect': rect}
+                    rect = dlib.rectangle(x, y, x + w, y + h)
+                    return {'center': (center_x, center_y), 'rect': rect}
         return None
 
     def get_output_layers(self, net):
