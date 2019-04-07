@@ -1,5 +1,5 @@
 from __future__ import print_function
-from imutils.object_detection import non_max_suppression
+#from imutils.object_detection import non_max_suppression
 from imutils import paths
 import numpy as np
 import argparse
@@ -7,8 +7,8 @@ import imutils
 from PIL import ImageGrab, ImageDraw, Image, ImageColor
 import time
 import cv2
-import pyautogui
 import dlib
+import math
 
 from input_mapper import InputMapper
 
@@ -17,7 +17,28 @@ from input_mapper import InputMapper
 
 class Detector:
     def __init__(self):
-        self.args = self.get_args()
+        args = self.get_args()
+        self.program_duration = 0
+        self.display_images = False
+        self.handle_args(args)
+        print("This program will move and left-click your mouse. "
+              "To exit, Alt-Tab to the command line and Ctrl-C.")
+        print("Use [-h] for optional commands.")
+        print("Happy hunting")
+
+        # Cropping & Scaling PyAutoGUI
+        self.im = InputMapper()
+        self.crop_scale = (.25, .33)  # x,y percent of image to remove (Must be below .5)
+        ss = self.im.screen_size
+        self.crop = (int(self.crop_scale[0] * ss[0]),
+                     int(self.crop_scale[1] * ss[1]))  # x, y crop from all sides
+        print(self.crop)
+        self.scale_down = .28  # Image resize factor
+        self.scale_up = 1 / self.scale_down
+        self.im.set_crop(self.crop)
+
+        self.avg_fps = 0
+        self.frames_captured = 0
 
         # YOLOv3 vars
         self.colors = None  # Draw pretty bounding boxes
@@ -28,37 +49,24 @@ class Detector:
         self.net = cv2.dnn.readNet(self.yolo_weights_path, self.yolo_config_path)
         self.output_layers = self.get_output_layers(self.net)
 
-        # TF
+        # TF - CSGO
         #self.net = cv2.dnn.readNetFromTensorflow('frozen_inference_graph.pb', 'csgo_labelmap.pbtxt')
         #self.classes_path = 'csgo_labelmap.pbtxt'
 
-        self.scale_down = .28
-        self.scale_up = 1/self.scale_down
         self.nms_threshold = 0.4  # How eager are you to combine overlapping bounding boxes?
         self.conf_threshold = 0.5
         self.scale = 0.00392
-
-        # PyAutoGUI
-        self.im = InputMapper()
 
         # Tracker
         self.tracker = None
         self.max_track_time = 3  # seconds
 
-        self.avg_fps = 0
-        self.frames_captured = 0
-
         # Get classes from file
         with open(self.yolo_classes_path, 'r') as f:
             self.classes = [line.strip() for line in f.readlines()]
-
         self.colors = np.random.uniform(0, 255, size=(len(self.classes), 3))
 
-        #-----TOGGLE BY COMMENTING-----
-        # Pass in display=True in detect_imgs() to display images.
-        # If you've specified a path, it will save results to file.
-        #self.detect_from_file()
-        self.run()  # Ctrl + C failsafe
+        self.run()
 
     def run(self):
         last_time = time.time() + 0.00001  # Non-zero
@@ -67,7 +75,7 @@ class Detector:
         tracked_time = 0
         frames = 0
 
-        while True:
+        while total_time < self.program_duration:
             image = self.preprocess(self.im.screen_size)  # compressed img
 
             if self.tracker is None:
@@ -84,22 +92,20 @@ class Detector:
                 tracked_time = 0
             else:
                 # Update tracker and re-center mouse
-                #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
                 confidence = self.tracker.update(image)
                 print("TRACKING CONFIDENCE: ", confidence)
-                if confidence < 4:
+                if confidence < 4.5:
                     self.tracker = None
                     tracked_time = 0
                 else:
                     target_pos = self.tracker.get_position()
 
                     # DRAW TEST
-                    bl = dlib.drectangle.bl_corner(target_pos)
-                    tr = dlib.drectangle.tr_corner(target_pos)
-                    cv2.rectangle(image, (int(bl.x), int(bl.y)), (int(tr.x), int(tr.y)), (255, 255, 255), 2)
-                    cv2.imshow("detection", image)
-                    cv2.waitKey(10)
+                    if self.display_images:
+                        bl = dlib.drectangle.bl_corner(target_pos)
+                        tr = dlib.drectangle.tr_corner(target_pos)
+                        self.display_boxed_img(image, bl.x, bl.y, tr.x, tr.y)
 
                     center = dlib.center(target_pos)
                     self.im.move_mouse(self.scale_point_up(center.x, center.y))
@@ -116,15 +122,17 @@ class Detector:
     # Move the tracking rect to where it will be after the mouse has moved. Calculate the distance
     # from the scaled down target to the center of the scaled down image.
     def translate_rect(self, rect, target_pos):
-        scaled_down_center = self.scale_point_down(self.im.screen_centerx, self.im.screen_centery)
+        scaled_down_center = self.scale_point_down(self.im.screen_centerx - self.crop[0],
+                                                   self.im.screen_centery - self.crop[1])
         dx = int(target_pos[0] - scaled_down_center[0])  # .shape is y | x
         dy = int(target_pos[1] - scaled_down_center[1])
-        newr = dlib.translate_rect(rect, dlib.point(-dx, -dy))
-        return newr
+        return dlib.translate_rect(rect, dlib.point(-dx, -dy))
 
     def preprocess(self, screen_size):
         #TODO: Crop image to increase speed
-        image = np.array(ImageGrab.grab(bbox=(0, 0, screen_size[0], screen_size[1])))
+        image = np.array(ImageGrab.grab(bbox=(self.crop[0], self.crop[1],
+                                              screen_size[0] - self.crop[0],
+                                              screen_size[1] - self.crop[1])))
         image = imutils.resize(image, width=min(int(image.shape[1] * self.scale_down), image.shape[1]))
         #image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         return image
@@ -137,7 +145,7 @@ class Detector:
 
     # Base code from Arun Punnusamy
     # https://www.arunponnusamy.com/yolo-object-detection-opencv-python.html
-    # Returns tuple of (center point, bounding box)
+    # Returns tuple of (center point, bounding box), relative to cropped & scaled down image
     def find_target(self, image, outs):
         for out in outs:
             for detection in out:
@@ -158,9 +166,8 @@ class Detector:
                     y = int(center_y - h / 2)
 
                     # DISPLAY IMAGE - testing
-                    cv2.rectangle(image, (x, y), (int(x + w), int(y + h)), (255, 255, 255), 2)
-                    cv2.imshow("detection", image)
-                    cv2.waitKey(10)
+                    if self.display_images:
+                        self.display_boxed_img(image, x, y, x + w, y + h)
 
                     # This will track the image in its scaled down size
                     # Create a new tracker object
@@ -180,19 +187,36 @@ class Detector:
         cv2.rectangle(img, (x, y), (x_plus_w, y_plus_h), color, 2)
         cv2.putText(img, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+    def display_boxed_img(self, image, x, y, x_plus_w, y_plus_h):
+        cv2.rectangle(image, (int(x), int(y)), (int(x_plus_w), int(y_plus_h)), (255, 255, 255), 2)
+        cv2.imshow("detection", image)
+        cv2.waitKey(10)
+
     def scale_point_up(self, x, y):
         return int(x * self.scale_up), int(y * self.scale_up)
 
     def scale_point_down(self, x, y):
         return int(x * self.scale_down), int(y * self.scale_down)
 
-    # ------------NON-ESSENTIAL CODE------------
     def get_args(self):
-        # construct the argument parse and parse the arguments
         ap = argparse.ArgumentParser()
-        ap.add_argument("-i", "--images", required=False, help="path to images directory")
+        #ap.add_argument("-i", "--images", required=False, help="path to images directory")
+        ap.add_argument("-d", "--display", required=False, action="store_true",
+                        help="display bounding box images (default: False)")
+        ap.add_argument("-t", "--time", required=False, help="program run time in seconds (default: Eternity)")
         return vars(ap.parse_args())
 
+    def handle_args(self, args):
+        if args["time"] is not None:
+            self.program_duration = int(args["time"])
+        else:
+            self.program_duration = math.inf
+
+        if args["display"] is not None:
+            self.display_images = args["display"]
+
+
+    # ------------NON-ESSENTIAL CODE------------
     def save_img(self, filename, image):
         path = filename.split('\\')
         path = ".\\imgs\\results\\" + path[len(path) - 1]
