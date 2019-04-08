@@ -20,6 +20,7 @@ class Detector:
         args = self.get_args()
         self.program_duration = 0
         self.display_images = False
+        self.tracking = True
         self.handle_args(args)
         print("This program will move and left-click your mouse. "
               "To exit, Alt-Tab to the command line and Ctrl-C.")
@@ -32,7 +33,6 @@ class Detector:
         ss = self.im.screen_size
         self.crop = (int(self.crop_scale[0] * ss[0]),
                      int(self.crop_scale[1] * ss[1]))  # x, y crop from all sides
-        print(self.crop)
         self.scale_down = .28  # Image resize factor
         self.scale_up = 1 / self.scale_down
         self.im.set_crop(self.crop)
@@ -49,14 +49,6 @@ class Detector:
         self.net = cv2.dnn.readNet(self.yolo_weights_path, self.yolo_config_path)
         self.output_layers = self.get_output_layers(self.net)
 
-        # TF - CSGO
-        #self.net = cv2.dnn.readNetFromTensorflow('frozen_inference_graph.pb', 'csgo_labelmap.pbtxt')
-        #self.classes_path = 'csgo_labelmap.pbtxt'
-
-        self.nms_threshold = 0.4  # How eager are you to combine overlapping bounding boxes?
-        self.conf_threshold = 0.5
-        self.scale = 0.00392
-
         # Tracker
         self.tracker = None
         self.max_track_time = 3  # seconds
@@ -64,8 +56,9 @@ class Detector:
         # Get classes from file
         with open(self.yolo_classes_path, 'r') as f:
             self.classes = [line.strip() for line in f.readlines()]
-        self.colors = np.random.uniform(0, 255, size=(len(self.classes), 3))
+        #self.colors = np.random.uniform(0, 255, size=(len(self.classes), 3))
 
+        time.sleep(3)
         self.run()
 
     def run(self):
@@ -85,30 +78,14 @@ class Detector:
                     target_pos = rd['center']
                     self.im.move_mouse(self.scale_point_up(target_pos[0], target_pos[1]))
 
-                    rect = self.translate_rect(rd['rect'], target_pos)
-                    self.tracker.start_track(dlib.as_grayscale(image), rect)
+                    if self.tracking:
+                        rect = self.translate_rect(rd['rect'], target_pos)
+                        self.tracker.start_track(dlib.as_grayscale(image), rect)
             elif tracked_time > self.max_track_time:
                 self.tracker = None
                 tracked_time = 0
             else:
-                # Update tracker and re-center mouse
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                confidence = self.tracker.update(image)
-                print("TRACKING CONFIDENCE: ", confidence)
-                if confidence < 4.5:
-                    self.tracker = None
-                    tracked_time = 0
-                else:
-                    target_pos = self.tracker.get_position()
-
-                    # DRAW TEST
-                    if self.display_images:
-                        bl = dlib.drectangle.bl_corner(target_pos)
-                        tr = dlib.drectangle.tr_corner(target_pos)
-                        self.display_boxed_img(image, bl.x, bl.y, tr.x, tr.y)
-
-                    center = dlib.center(target_pos)
-                    self.im.move_mouse(self.scale_point_up(center.x, center.y))
+                tracked_time *= self.track(image)
             tracked_time += time_diff
 
             # Print FPS
@@ -118,6 +95,27 @@ class Detector:
             print('loop took {0:.3f} seconds at {1:.3f} fps. Avg fps: {2:.3f}'.format(
                 time_diff, 1/time_diff, 1/(total_time/frames)))
             last_time = time.time()
+
+    def track(self, image):
+        # Update tracker and re-center mouse
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        confidence = self.tracker.update(image)
+        # print("TRACKING CONFIDENCE: ", confidence)
+        if confidence < 4.5:
+            self.tracker = None
+            return 0
+        else:
+            target_pos = self.tracker.get_position()
+
+            # DRAW TEST
+            if self.display_images:
+                bl = dlib.drectangle.bl_corner(target_pos)
+                tr = dlib.drectangle.tr_corner(target_pos)
+                self.display_boxed_img(image, bl.x, bl.y, tr.x, tr.y)
+
+            center = dlib.center(target_pos)
+            self.im.move_mouse(self.scale_point_up(center.x, center.y))
+            return 1
 
     # Move the tracking rect to where it will be after the mouse has moved. Calculate the distance
     # from the scaled down target to the center of the scaled down image.
@@ -129,7 +127,6 @@ class Detector:
         return dlib.translate_rect(rect, dlib.point(-dx, -dy))
 
     def preprocess(self, screen_size):
-        #TODO: Crop image to increase speed
         image = np.array(ImageGrab.grab(bbox=(self.crop[0], self.crop[1],
                                               screen_size[0] - self.crop[0],
                                               screen_size[1] - self.crop[1])))
@@ -138,8 +135,7 @@ class Detector:
         return image
 
     def process(self, image):
-        # Decreasing third parameter decreases computation time, incr false positives
-        blob = cv2.dnn.blobFromImage(image, self.scale, (416, 416), (0, 0, 0), True, crop=False)
+        blob = cv2.dnn.blobFromImage(image, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
         self.net.setInput(blob)
         return self.net.forward(self.output_layers)
 
@@ -171,7 +167,8 @@ class Detector:
 
                     # This will track the image in its scaled down size
                     # Create a new tracker object
-                    self.tracker = dlib.correlation_tracker()
+                    if self.tracking:
+                        self.tracker = dlib.correlation_tracker()
                     rect = dlib.rectangle(x, y, x + w, y + h)
                     return {'center': (center_x, center_y), 'rect': rect}
         return None
@@ -200,10 +197,11 @@ class Detector:
 
     def get_args(self):
         ap = argparse.ArgumentParser()
-        #ap.add_argument("-i", "--images", required=False, help="path to images directory")
         ap.add_argument("-d", "--display", required=False, action="store_true",
                         help="display bounding box images (default: False)")
         ap.add_argument("-t", "--time", required=False, help="program run time in seconds (default: Eternity)")
+        ap.add_argument("-r", "--track", required=False, action="store_false",
+                        help="don't track detected objects (default: True)")
         return vars(ap.parse_args())
 
     def handle_args(self, args):
@@ -212,77 +210,8 @@ class Detector:
         else:
             self.program_duration = math.inf
 
-        if args["display"] is not None:
-            self.display_images = args["display"]
-
-
-    # ------------NON-ESSENTIAL CODE------------
-    def save_img(self, filename, image):
-        path = filename.split('\\')
-        path = ".\\imgs\\results\\" + path[len(path) - 1]
-        cv2.imwrite(path, image)
-
-    # Some code inspired by Adrian Rosebrock
-    # https://www.pyimagesearch.com/2015/11/09/pedestrian-detection-opencv/
-    def detect_from_file(self, display=None):
-        start_time = time.time()
-        for image_path in paths.list_images(self.args["images"]):
-            image = cv2.imread(image_path)
-            image = imutils.resize(image, width=min(int(image.shape[1] * self.scale_down), image.shape[1]))
-            # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-            width = image.shape[1]
-            height = image.shape[0]
-
-            # Decreasing third parameter decreases computation time, incr false positives
-            blob = cv2.dnn.blobFromImage(image, self.scale, (416, 416), (0, 0, 0), True, crop=False)
-            self.net.setInput(blob)
-            outs = self.net.forward(self.output_layers)
-
-            confidences = []
-            boxes = []
-            class_ids = []
-
-            for out in outs:
-                for detection in out:
-                    scores = detection[5:]
-                    class_id = np.argmax(scores)
-
-                    confidence = scores[class_id]
-                    if confidence > 0.6 and self.classes[class_id] == 'person':
-                        center_x = int(detection[0] * width)
-                        center_y = int(detection[1] * height)
-                        w = int(detection[2] * width)
-                        h = int(detection[3] * height)
-                        x = center_x - w / 2
-                        y = center_y - h / 2
-
-                        # print("cx: {0} cy: {1}, w: {2} h: {3}, x: {4} y: {5}, a: {6} b: {7}".format
-                        # (center_x, center_y, w, h, x, y, a, b))
-                        class_ids.append(class_id)
-                        confidences.append(float(confidence))
-                        boxes.append([x, y, w, h])
-
-            indices = cv2.dnn.NMSBoxes(boxes, confidences, self.conf_threshold, self.nms_threshold)
-
-            # Draw bounding boxes
-            for i in indices:
-                i = i[0]
-                box = boxes[i]
-                x = round(box[0])
-                y = round(box[1])
-                w = round(box[2])
-                h = round(box[3])
-                self.draw_prediction(image, class_ids[i], confidences[i], x, y, x + w, y + h)
-
-            print("duration: {0:.2f}s".format(time.time() - start_time))
-
-            filename = image_path[image_path.rfind("/") + 1:]
-            self.save_img(filename, image)
-
-            if display:
-                cv2.imshow("After NMS", image)
-                cv2.waitKey(2000)  # ms
+        self.display_images = args["display"]
+        self.tracking = args["track"]
 
 
 if __name__ == "__main__":

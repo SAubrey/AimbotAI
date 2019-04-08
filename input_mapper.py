@@ -41,12 +41,9 @@ class InputMapper:
 
     def burst_fire(self, duration):
         pag.mouseDown()
-        time.sleep(3)
+        time.sleep(1)
         pag.mouseUp()
 
     def set_crop(self, crop):
         self.crop = crop
-        #self.screen_centerx = (self.screen_size[0] - crop[0]) / 2
-        #self.screen_centery = (self.screen_size[1] - crop[1]) / 2
-
 
