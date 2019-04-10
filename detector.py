@@ -9,11 +9,23 @@ import time
 import cv2
 import dlib
 import math
+from ctypes import windll, Structure, c_long, byref
+from threading import Thread
+import queue
+
 
 from input_mapper import InputMapper
 
 # In CS:GO, turn on developer commands in settings, press '~',
 # type sv_cheats 1, then bot_stop 1 to immobilize bots for easier testing.
+
+class POINT(Structure):
+    _fields_ = [("x", c_long), ("y", c_long)]
+
+    def queryMousePosition():
+        pt = POINT()
+        windll.user32.GetCursorPos(byref(pt))
+        return { "x": pt.x, "y": pt.y}
 
 class Detector:
     def __init__(self):
@@ -36,6 +48,7 @@ class Detector:
         self.scale_down = .28  # Image resize factor
         self.scale_up = 1 / self.scale_down
         self.im.set_crop(self.crop)
+        self.q = queue.Queue()
 
         self.avg_fps = 0
         self.frames_captured = 0
@@ -67,6 +80,7 @@ class Detector:
         self.colors = np.random.uniform(0, 255, size=(len(self.classes), 3))
 
         self.run()
+        
 
     def run(self):
         last_time = time.time() + 0.00001  # Non-zero
@@ -74,9 +88,12 @@ class Detector:
         time_diff = 0
         tracked_time = 0
         frames = 0
+        
 
         while total_time < self.program_duration:
-            image = self.preprocess(self.im.screen_size)  # compressed img
+            self.start()
+            #image = self.preprocess(self.im.screen_size)  # compressed img
+            image = self.q.get()
 
             if self.tracker is None:
                 outs = self.process(image)
@@ -84,6 +101,8 @@ class Detector:
                 if rd is not None:  # If target found, move and track
                     target_pos = rd['center']
                     self.im.move_mouse(self.scale_point_up(target_pos[0], target_pos[1]))
+                    self.im.click(target_pos[0],target_pos[1])
+                    
 
                     rect = self.translate_rect(rd['rect'], target_pos)
                     self.tracker.start_track(dlib.as_grayscale(image), rect)
@@ -95,20 +114,20 @@ class Detector:
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
                 confidence = self.tracker.update(image)
                 print("TRACKING CONFIDENCE: ", confidence)
-                if confidence < 4.5:
-                    self.tracker = None
-                    tracked_time = 0
-                else:
-                    target_pos = self.tracker.get_position()
+                # if confidence < 4.5:
+                #     self.tracker = None
+                #     tracked_time = 0
+                # else:
+                #     target_pos = self.tracker.get_position()
 
-                    # DRAW TEST
-                    if self.display_images:
-                        bl = dlib.drectangle.bl_corner(target_pos)
-                        tr = dlib.drectangle.tr_corner(target_pos)
-                        self.display_boxed_img(image, bl.x, bl.y, tr.x, tr.y)
+                #     # DRAW TEST
+                #     if self.display_images:
+                #         bl = dlib.drectangle.bl_corner(target_pos)
+                #         tr = dlib.drectangle.tr_corner(target_pos)
+                #         self.display_boxed_img(image, bl.x, bl.y, tr.x, tr.y)
 
-                    center = dlib.center(target_pos)
-                    self.im.move_mouse(self.scale_point_up(center.x, center.y))
+                #     center = dlib.center(target_pos)
+                #     self.im.move_mouse(self.scale_point_up(center.x, center.y))
             tracked_time += time_diff
 
             # Print FPS
@@ -128,12 +147,20 @@ class Detector:
         dy = int(target_pos[1] - scaled_down_center[1])
         return dlib.translate_rect(rect, dlib.point(-dx, -dy))
 
+    def start(self):
+        Thread(target=self.preprocess(self.im.screen_size), args=()).start()
+        return self
+
     def preprocess(self, screen_size):
         #TODO: Crop image to increase speed
-        image = np.array(ImageGrab.grab(bbox=(self.crop[0], self.crop[1],
-                                              screen_size[0] - self.crop[0],
-                                              screen_size[1] - self.crop[1])))
-        image = imutils.resize(image, width=min(int(image.shape[1] * self.scale_down), image.shape[1]))
+        while True:
+            image = np.array(ImageGrab.grab(bbox=(self.crop[0], self.crop[1],
+                                                screen_size[0] - self.crop[0],
+                                                screen_size[1] - self.crop[1])))
+            image = imutils.resize(image, width=min(int(image.shape[1] * self.scale_down), image.shape[1]))
+            self.q.put(image)
+            if cv2.waitKey(1) == ord("q"):
+                self.stopped = True
         #image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         return image
 
@@ -287,3 +314,4 @@ class Detector:
 
 if __name__ == "__main__":
     d = Detector()
+
