@@ -1,5 +1,6 @@
 import time
 import pyautogui as pag
+import win32api, win32con
 
 """
 NOTES
@@ -36,8 +37,8 @@ class InputMapper:
     def get_center(self):
         return self.screen_centerx, self.screen_centery
 
-    def click(self):
-        pag.click()
+    #def click(self):
+        #pag.click()
 
     def burst_fire(self, duration):
         pag.mouseDown()
@@ -48,5 +49,12 @@ class InputMapper:
         self.crop = crop
         #self.screen_centerx = (self.screen_size[0] - crop[0]) / 2
         #self.screen_centery = (self.screen_size[1] - crop[1]) / 2
+    
+    def click(self,x,y):
+        #win32api.SetCursorPos((x,y))
+        time.sleep(1)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN,x,y,0,0)
+        time.sleep(1)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP,x,y,0,0)
 
 
