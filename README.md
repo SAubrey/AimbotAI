@@ -31,11 +31,12 @@ Use `conda list` to view installed modules
 
 ## Running
 ```
-usage: detector.py [-h] [-d] [-t TIME] [-r]  
+usage: detector.py [-h] [-d] [-t TIME] [-r] [-f]  
 
 optional arguments:  
   -h, --help            show this help message and exit  
   -d, --display         display bounding box images (default: False)  
   -t TIME, --time TIME  program run time in seconds (default: Eternity)  
   -r, --track           don't track detected objects (default: True)  
+  -f, --fps             print frames-per-second (default: False)
 ```
