@@ -19,6 +19,7 @@ pip install imutils
 pip install numpy  
 pip install cmake  
 conda install -c conda-forge dlib=19.4  
+pip install dlib --upgrade  
 pip install Pillow  
 pip install pyautogui  
 ```
