@@ -1,7 +1,7 @@
 # CS:GO Aimbot
 ## Setup
-* Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/1tZ_bju3p52w00HpYJPz6xbhbiMEQPkwS/view?usp=sharing)  
-(246 MB)  
+* Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/19_mIm7uGL0IBHtYEjnRLX-X_7llLJWqE/view?usp=sharing)  
+(34 MB)  
 * You can install Counter-Strike: Global Offensive (CS:GO) for free [here](https://store.steampowered.com/app/730/CounterStrike_Global_Offensive/) 
 
    **Necessary In-Game Settings**  
