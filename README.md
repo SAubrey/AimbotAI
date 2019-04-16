@@ -1,4 +1,5 @@
 # CS:GO Aimbot
+[Overview](https://docs.google.com/presentation/d/1Ft-EGzyp8AtaLCrrGIvuR_KTY2BCuzBqsar0XjFviio/edit?usp=sharing)  
 ## Setup
 * Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/19_mIm7uGL0IBHtYEjnRLX-X_7llLJWqE/view?usp=sharing) (34 MB)  
 Put the weights at the top of the project directory.  
