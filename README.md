@@ -1,7 +1,7 @@
 # CS:GO Aimbot
 ## Setup
-* Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/19_mIm7uGL0IBHtYEjnRLX-X_7llLJWqE/view?usp=sharing)  
-(34 MB)  
+* Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/19_mIm7uGL0IBHtYEjnRLX-X_7llLJWqE/view?usp=sharing) (34 MB)  
+Put the weights at the top of the project directory.  
 * You can install Counter-Strike: Global Offensive (CS:GO) for free [here](https://store.steampowered.com/app/730/CounterStrike_Global_Offensive/) 
 
    **Necessary In-Game Settings**  
@@ -22,6 +22,7 @@ conda install -c conda-forge dlib=19.4
 pip install dlib --upgrade  
 pip install Pillow  
 pip install pyautogui  
+pip install --upgrade mss
 ```
 When finished,   
 `conda deactivate`  
