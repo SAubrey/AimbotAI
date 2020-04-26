@@ -1,4 +1,5 @@
 # CS:GO Aimbot
+*Note!* This aimbot was created as an exploration of machine learning technology. Using a computer to do your dirty work in an online competitive environment defeats the point, degrades the integrity of the game, and is completely unfulfilling. You're probably better than this aimbot, anyway. Significant performance improvements would result from running the convolutional layers on a GPU.
 [Overview](https://docs.google.com/presentation/d/1Ft-EGzyp8AtaLCrrGIvuR_KTY2BCuzBqsar0XjFviio/edit?usp=sharing)  
 ## Setup
 * Get the YOLOv3 trained weights [here](https://drive.google.com/file/d/19_mIm7uGL0IBHtYEjnRLX-X_7llLJWqE/view?usp=sharing) (34 MB)  
